@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.egg-info/
+.env
+
+# Large data and result files
+LaMP/
+results/
+results_smoke/

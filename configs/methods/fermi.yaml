@@ -1,0 +1,15 @@
+{
+  "method": "fermi",
+  "K": 4,
+  "L": 5,
+  "T": 10,
+  "rop_n_tilde": 3,
+  "model_M_name": "gpt-4.1-mini",
+  "model_Mopt_name": "gpt-4o-mini",
+  "M_temperature": 0.0,
+  "Mopt_temperature": 1.0,
+  "openai_api_key_env": "OPENAI_API_KEY",
+  "openai_max_retries": 2,
+  "openai_request_timeout": 30.0,
+  "optimization_train_ratio": 0.2
+}

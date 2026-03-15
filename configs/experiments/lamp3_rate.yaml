@@ -1,0 +1,6 @@
+{
+  "task": "LaMP3_rate",
+  "primary_metric": "mae",
+  "tau": 1.0,
+  "default_split": "test"
+}

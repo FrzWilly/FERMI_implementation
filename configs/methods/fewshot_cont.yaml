@@ -1,0 +1,6 @@
+{
+  "method": "fewshot_cont",
+  "retrieval_topk": 3,
+  "retriever": "contriever"
+}
+

@@ -1,0 +1,6 @@
+{
+  "task": "LaMP2_tag",
+  "primary_metric": "accuracy",
+  "tau": 1.0,
+  "default_split": "test"
+}

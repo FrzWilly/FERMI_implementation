@@ -1,0 +1,6 @@
+{
+  "method": "fewshot_bm25",
+  "retrieval_topk": 3,
+  "retriever": "bm25"
+}
+

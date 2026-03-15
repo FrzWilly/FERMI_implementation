@@ -1,0 +1,6 @@
+{
+  "task": "LaMP5_title",
+  "primary_metric": "rouge_l",
+  "tau": 0.2,
+  "default_split": "test"
+}
