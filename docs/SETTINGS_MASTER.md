@@ -90,6 +90,52 @@ python3 -m FERMI.src.runner.run_all --split dev --seed 42 --output_dir FERMI/res
   - 每次 run 的 `summary.json` 會記錄 `method_runtime.llm`（`provider`、`has_api_key`、`fallback_reason`、`api_calls`、`fallback_calls`）。
 - 由於當前資料夾未提供 `test_outputs.json`，`test` split 會產生預測檔但 `metrics.json.metric_value = null`。
 
+## 8) Paper-faithful mode（FERMI Appendix 對齊）
+
+本節為「盡可能對齊論文 Appendix」的執行配置（不含全矩陣重跑）。
+
+### 8.1 對齊參數
+
+- `K=4` / `L=5` / `T=10`
+- `rop_n_tilde=3`
+- `optimization_train_ratio=0.8`
+- `demonstration_ratio=0.2`
+- `split_per_user=true`
+- `M_temperature=0.0`
+- `Mopt_temperature=1.0`
+- `tau(LaMP5_title)=0.2`；其餘 task `tau=1.0`
+
+目前設定檔對應：
+
+- [`FERMI/configs/methods/opro.yaml`](FERMI/configs/methods/opro.yaml)
+- [`FERMI/configs/methods/fermi.yaml`](FERMI/configs/methods/fermi.yaml)
+- [`FERMI/configs/experiments/lamp2_tag.yaml`](FERMI/configs/experiments/lamp2_tag.yaml)
+- [`FERMI/configs/experiments/lamp3_rate.yaml`](FERMI/configs/experiments/lamp3_rate.yaml)
+- [`FERMI/configs/experiments/lamp5_title.yaml`](FERMI/configs/experiments/lamp5_title.yaml)
+
+### 8.2 Appendix 模板落地
+
+- OPRO p_opt（Figure 9）已落地於 [`OPRO_FIGURE9_POPT`](FERMI/src/prompts/templates.py:58)
+- FERMI p_opt（Figure 8）已落地於 [`FERMI_FIGURE8_POPT`](FERMI/src/prompts/templates.py:72)
+- Few-shot（Listing 3）已落地於 [`FEWSHOT_LISTING3`](FERMI/src/prompts/templates.py:48)
+- Vanilla（Listing 6）已落地於 [`VANILLA_LAMP_RATE_LISTING6`](FERMI/src/prompts/templates.py:20)
+- tag/title 模板為 **minimal adjustment**（論文未提供完整同等 vanilla 原文）
+
+### 8.3 RoP backend（mpnet 預設 + 安全 fallback）
+
+- 預設 `rop_backend=mpnet`
+- 若環境無 `sentence-transformers`，自動 fallback lexical，並於 runtime 記錄 `fallback_reason`
+- 相關程式：[`RoPSelector`](FERMI/src/retrieval/rop_selector.py:10)
+
+### 8.4 已知偏差（仍保留）
+
+1. 目前推論核心仍含規則式 [`predict_from_profile()`](FERMI/src/methods/base.py:43)；
+   尚非完整以 LLM 實作 `M(q; p)` 的 end-to-end 生成式推論。
+2. Few-shot 模板已對齊並落地，但目前主要作為流程與模板可追溯；
+   非完全改寫為 prompt 驅動推理路徑。
+
+## 9) 本次 3×6 比較結果（可直接引用）
+
 ## 10) OpenAI 相關設定欄位
 
 設定來源（runner 依序合併）：
@@ -115,11 +161,11 @@ python3 -m pip install -r FERMI/requirements.txt
 export OPENAI_API_KEY="sk-..."
 ```
 
-## 8) 本次 3×6 比較結果（可直接引用）
+## 10) 本次 3×6 比較結果（可直接引用）
 
 > 說明：目前可計算主指標者為 `dev`；`test` 僅有 predictions（無 gold），故主指標為 `null`。
 
-### 8.1 方法 × 任務主指標（dev）
+### 10.1 方法 × 任務主指標（dev）
 
 | Method | LaMP2_tag (Acc ↑) | LaMP3_rate (MAE ↓) | LaMP5_title (Rouge-L ↑) |
 |---|---:|---:|---:|
@@ -130,13 +176,13 @@ export OPENAI_API_KEY="sk-..."
 | opro | **0.3150** | 0.6580 | 0.0793 |
 | fermi | **0.3150** | 0.6580 | 0.0793 |
 
-### 8.2 各任務最佳方法
+### 10.2 各任務最佳方法
 
 - `LaMP2_tag`: `vanilla` / `opro` / `fermi` 並列最佳（Acc=0.3150）
 - `LaMP3_rate`: `fewshot_bm25` / `fewshot_cont` 並列最佳（MAE=0.5764）
 - `LaMP5_title`: `fewshot_bm25` / `fewshot_cont` 並列最佳（Rouge-L=0.2478）
 
-### 8.3 FERMI 相對 baseline 的 delta（dev）
+### 10.3 FERMI 相對 baseline 的 delta（dev）
 
 定義：
 - Acc / Rouge-L：`delta = fermi - baseline`（正值代表 FERMI 較佳）
@@ -150,7 +196,7 @@ export OPENAI_API_KEY="sk-..."
 | fewshot_cont | +0.0332 | -0.0816 | -0.1685 |
 | opro | +0.0000 | +0.0000 | +0.0000 |
 
-## 9) test split 完整性狀態
+## 11) test split 完整性狀態
 
 - 3 tasks × 6 methods 已全部完成並輸出三檔：`predictions.json`、`metrics.json`、`summary.json`。
 - 目前 `metrics.json.metric_value` 為 `null`（因缺 test gold），屬資料條件限制而非執行失敗。

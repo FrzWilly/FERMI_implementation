@@ -3,6 +3,10 @@
   "K": 4,
   "L": 5,
   "T": 10,
+  "rop_n_tilde": 3,
+  "optimization_train_ratio": 0.8,
+  "demonstration_ratio": 0.2,
+  "split_per_user": true,
   "model_M_name": "gpt-4.1-mini",
   "model_Mopt_name": "gpt-4o-mini",
   "M_temperature": 0.0,
@@ -10,5 +14,6 @@
   "openai_api_key_env": "OPENAI_API_KEY",
   "openai_max_retries": 2,
   "openai_request_timeout": 30.0,
-  "optimization_train_ratio": 0.2
+  "prediction_profile_limit": 20,
+  "prediction_max_tokens": 64
 }

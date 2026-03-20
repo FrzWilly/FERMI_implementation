@@ -64,9 +64,12 @@ class LLMClient:
         max_tokens: int = 256,
         model: Optional[str] = None,
         role: str = "optimizer",
+        allow_fallback: bool = True,
     ) -> str:
         if self.client is None:
             self.fallback_calls += 1
+            if not allow_fallback:
+                raise RuntimeError(self.last_fallback_reason or f"missing_env:{self.api_key_env}")
             return self._fallback(prompt)
 
         resolved_model = model or (self.optimizer_model if role == "optimizer" else self.evaluator_model)
@@ -94,6 +97,11 @@ class LLMClient:
                 if attempt >= self.max_retries:
                     break
                 time.sleep(min(2**attempt, 4))
+
+        self.last_fallback_reason = f"api_error:{type(last_exc).__name__}" if last_exc is not None else "api_error:unknown"
+        if allow_fallback:
+            self.fallback_calls += 1
+            return self._fallback(prompt)
 
         raise RuntimeError(
             f"OpenAI completion failed for model={resolved_model} after {self.max_retries + 1} attempts"

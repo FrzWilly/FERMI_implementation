@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,22 @@ def read_json(path: Path) -> Any:
 def write_json(path: Path, obj: Any) -> None:
     ensure_dir(path.parent)
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def append_jsonl(path: Path, obj: Any) -> None:
+    ensure_dir(path.parent)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(obj, ensure_ascii=False))
+        f.write("\n")
+
+
+def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
+    ensure_dir(path.parent)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name) for name in fieldnames})
 
 
 def load_config_file(path: Path) -> dict:
@@ -40,4 +57,3 @@ def load_config_file(path: Path) -> dict:
         raise ValueError(f"Config root must be mapping: {path}")
     except Exception as exc:  # pragma: no cover - optional dependency path
         raise ValueError(f"Unable to parse config file: {path}") from exc
-

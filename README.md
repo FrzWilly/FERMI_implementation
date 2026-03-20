@@ -20,6 +20,29 @@ bash FERMI/scripts/reproduce_lamp.sh test 42 FERMI/results
 bash FERMI/scripts/reproduce_lamp.sh dev 42 FERMI/results
 ```
 
+## Paper-faithful mode（最小可執行對齊）
+
+本模式對齊 [`references/FERMI.pdf`](references/FERMI.pdf) 的 LaMP setup 與 Appendix 模板重點，
+但不在本子任務執行全矩陣實驗。
+
+### 主要對齊內容
+
+- `K=4`, `L=5`, `T=10`
+- `rop_n_tilde=3`
+- `M_temperature=0.0`, `Mopt_temperature=1.0`
+- `tau(LaMP5_title)=0.2`, 其餘 task `tau=1.0`
+- `Uopi` 每 user `80/20` 拆分為 optimization / demonstration
+- OPRO/FERMI p_opt 模板對齊 Figure 9 / Figure 8
+- Few-shot 模板對齊 Listing 3
+- Vanilla 對齊 Listing 6（`LaMP_rate` 原文；`tag/title` 為 minimal adjustment）
+
+### 最小 smoke 執行示例（不跑全矩陣）
+
+```bash
+python3 -m FERMI.src.runner.run_method --task LaMP2_tag --method opro --split dev --limit 20 --train_limit 200 --seed 42 --output_dir FERMI/results --data_root FERMI/LaMP
+python3 -m FERMI.src.runner.run_method --task LaMP2_tag --method fermi --split dev --limit 20 --train_limit 200 --seed 42 --output_dir FERMI/results --data_root FERMI/LaMP
+```
+
 ## 直接使用 CLI（等價）
 
 ```bash
@@ -53,6 +76,8 @@ export OPENAI_API_KEY="sk-..."
 - `Mopt_temperature`：Optimizer 溫度（實際用於 prompt generation）
 - `openai_max_retries`：API 失敗重試次數
 - `openai_request_timeout`：API timeout 秒數
+
+RoP 的 MPNet backend 若要啟用，需安裝 `sentence-transformers`（已列入 [`FERMI/requirements.txt`](FERMI/requirements.txt)）。
 
 可在 [`FERMI/configs/shared/models.yaml`](FERMI/configs/shared/models.yaml) 或方法設定檔覆寫（如 [`FERMI/configs/methods/opro.yaml`](FERMI/configs/methods/opro.yaml)）。
 
@@ -90,5 +115,11 @@ export OPENAI_API_KEY="sk-..."
 
 - `fewshot_cont` 目前為 lexical fallback（`ContrieverRetriever` 介面保留）。
 - `opro` / `fermi` 若未設定 `OPENAI_API_KEY`，會 fallback 本地 prompt 變體生成（並於 summary 記錄）。
+- `fermi` 的 `rop_backend` 預設為 `mpnet`；若環境缺 `sentence-transformers` 或載入失敗，會安全 fallback 到 lexical 並記錄原因。
 - 目前資料下 `test` split 無 gold（缺 `test_outputs.json`），因此 `metrics.json.metric_value = null`；
   但 3×6 test run 仍完整產出 `predictions.json`、`metrics.json`、`summary.json`。
+
+## 已知偏差（Paper-faithful mode 仍保留）
+
+- 目前核心推論仍包含規則式預測器，並非完整 `M(q; p)` end-to-end LLM 推論。
+- Few-shot Listing 3 已模板化落地，但現階段主要用於流程對齊與可追溯，不是完整 prompt 推理替換。

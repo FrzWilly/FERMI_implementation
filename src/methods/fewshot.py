@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 
 from FERMI.src.data.lamp_parser import UnifiedSample
 from FERMI.src.methods.base import BaseMethod, predict_from_profile
+from FERMI.src.prompts.formatter import build_fewshot_listing3_prompt
 from FERMI.src.retrieval.bm25_retriever import BM25LikeRetriever
 from FERMI.src.retrieval.contriever_retriever import ContrieverRetriever
 
@@ -43,10 +44,10 @@ class FewShotMethod(BaseMethod):
             text_fn=self.profile_text_fn,
             top_k=self.top_k,
         )
+        _ = build_fewshot_listing3_prompt(sample, retrieved)
         pred = self._predict_with_retrieved(sample, retrieved)
         return {
             "prediction": pred,
             "selected_prompt_id": f"fewshot_top{self.top_k}",
             "rop_neighbor_ids": [str(x.get("id")) for x in retrieved[: self.top_k]],
         }
-

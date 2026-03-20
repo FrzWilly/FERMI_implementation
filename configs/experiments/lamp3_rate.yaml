@@ -2,5 +2,7 @@
   "task": "LaMP3_rate",
   "primary_metric": "mae",
   "tau": 1.0,
+  "optimization_train_ratio": 0.8,
+  "demonstration_ratio": 0.2,
   "default_split": "test"
 }

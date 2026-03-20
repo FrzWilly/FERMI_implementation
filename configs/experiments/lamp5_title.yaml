@@ -2,5 +2,7 @@
   "task": "LaMP5_title",
   "primary_metric": "rouge_l",
   "tau": 0.2,
+  "optimization_train_ratio": 0.8,
+  "demonstration_ratio": 0.2,
   "default_split": "test"
 }

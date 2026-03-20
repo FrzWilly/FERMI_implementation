@@ -58,7 +58,8 @@ def _enrich_prediction_fields(task: str, record: Dict[str, Any]) -> Dict[str, An
     if gold is not None and task == "LaMP2_tag":
         is_correct = str(pred) == str(gold)
     if gold is not None and task == "LaMP3_rate":
-        abs_error = abs(float(pred) - float(gold))
+        if pred is not None:
+            abs_error = abs(float(pred) - float(gold))
     if gold is not None and task == "LaMP5_title":
         rouge_l = rouge_l_f1(str(pred), str(gold))
 
@@ -83,7 +84,12 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     train_samples = split_builder.load_split(args.task, split="train", limit=args.train_limit, check_consistency=True)
     target_samples = split_builder.load_split(args.task, split=args.split, limit=args.limit, check_consistency=True)
 
+    run_id = make_run_id(task=args.task, method=args.method, seed=args.seed)
+    run_dir = Path(args.output_dir) / run_id
+    ensure_dir(run_dir)
+
     method = _build_method(args.method, args.task, config)
+    method.set_run_context(run_dir=run_dir, split=args.split)
     method.fit(train_samples)
 
     predictions: List[Dict[str, Any]] = []
@@ -98,16 +104,14 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             "gold": sample.gold,
             "selected_prompt_id": out.get("selected_prompt_id"),
             "rop_neighbor_ids": out.get("rop_neighbor_ids", []),
+            "prediction_source": out.get("prediction_source"),
+            "fallback_reason": out.get("fallback_reason"),
             "user_id": sample.user_id,
         }
         predictions.append(_enrich_prediction_fields(args.task, pred_record))
 
     evaluator = Evaluator()
     metrics = evaluator.evaluate(task=args.task, method=args.method, split=args.split, predictions=predictions)
-
-    run_id = make_run_id(task=args.task, method=args.method, seed=args.seed)
-    run_dir = Path(args.output_dir) / run_id
-    ensure_dir(run_dir)
 
     predictions_path = run_dir / "predictions.json"
     metrics_path = run_dir / "metrics.json"
@@ -123,6 +127,7 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
         "predictions_path": str(predictions_path),
         "metrics_path": str(metrics_path),
         "config": config,
+        "artifacts": method.artifact_summary(),
         "method_runtime": method.runtime_summary(),
     }
 
