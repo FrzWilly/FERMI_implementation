@@ -21,23 +21,72 @@ class RoPSelector:
         self.fallback_used = False
         self.fallback_reason = ""
         self._mpnet_model = None
+        self._embedding_cache: Dict[str, List[float]] = {}
+        self._mpnet_device = None
 
         if self.backend_requested == "mpnet":
             try:
                 from sentence_transformers import SentenceTransformer  # type: ignore
 
                 self._mpnet_model = SentenceTransformer(self.mpnet_model_name)
+                self._mpnet_device = str(getattr(self._mpnet_model, "device", "unknown"))
                 self.backend_effective = "mpnet"
             except Exception as exc:  # pragma: no cover - runtime dependent
-                self.backend_effective = "lexical"
-                self.fallback_used = True
-                self.fallback_reason = f"mpnet_unavailable:{type(exc).__name__}"
+                self._activate_fallback(f"mpnet_unavailable:{type(exc).__name__}:{exc}")
         elif self.backend_requested in {"lexical", "bm25"}:
             self.backend_effective = "lexical"
         else:
-            self.backend_effective = "lexical"
-            self.fallback_used = True
-            self.fallback_reason = f"unsupported_backend:{self.backend_requested}"
+            self._activate_fallback(f"unsupported_backend:{self.backend_requested}")
+
+    def _activate_fallback(self, reason: str) -> None:
+        self.backend_effective = "lexical"
+        self.fallback_used = True
+        if not self.fallback_reason:
+            self.fallback_reason = reason
+
+    def _encode_texts(self, texts: Sequence[str]) -> List[List[float]]:
+        if self.backend_effective != "mpnet" or self._mpnet_model is None:
+            return []
+
+        normalized = [str(text) for text in texts]
+        missing = [text for text in normalized if text not in self._embedding_cache]
+
+        if missing:
+            try:
+                embeddings = self._mpnet_model.encode(
+                    missing,
+                    convert_to_tensor=True,
+                    show_progress_bar=False,
+                )
+                if hasattr(embeddings, "detach"):
+                    embeddings = embeddings.detach().cpu()
+                    rows = embeddings.tolist()
+                    if missing and rows and isinstance(rows[0], (int, float)):
+                        rows = [rows]
+                else:
+                    rows = []
+                    for emb in embeddings:
+                        if hasattr(emb, "detach"):
+                            rows.append(emb.detach().cpu().tolist())
+                        elif hasattr(emb, "tolist"):
+                            rows.append(emb.tolist())
+                        else:
+                            rows.append(list(emb))
+
+                for text, vector in zip(missing, rows):
+                    self._embedding_cache[text] = [float(v) for v in vector]
+            except Exception as exc:  # pragma: no cover - runtime dependent
+                self._activate_fallback(f"mpnet_runtime_error:{type(exc).__name__}:{exc}")
+                return []
+
+        vectors: List[List[float]] = []
+        for text in normalized:
+            vector = self._embedding_cache.get(text)
+            if vector is None:
+                self._activate_fallback("mpnet_runtime_error:MissingEmbeddingCache")
+                return []
+            vectors.append(vector)
+        return vectors
 
     @staticmethod
     def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
@@ -53,16 +102,10 @@ class RoPSelector:
 
     def _query_text_similarity(self, query: str, text: str) -> float:
         if self.backend_effective == "mpnet" and self._mpnet_model is not None:
-            try:
-                vecs = self._mpnet_model.encode([query, text])
-                qv = vecs[0].tolist() if hasattr(vecs[0], "tolist") else list(vecs[0])
-                tv = vecs[1].tolist() if hasattr(vecs[1], "tolist") else list(vecs[1])
+            vecs = self._encode_texts([query, text])
+            if len(vecs) == 2:
+                qv, tv = vecs
                 return self._cosine(qv, tv)
-            except Exception as exc:  # pragma: no cover - runtime dependent
-                self.backend_effective = "lexical"
-                self.fallback_used = True
-                if not self.fallback_reason:
-                    self.fallback_reason = f"mpnet_runtime_error:{type(exc).__name__}"
 
         return lexical_overlap_score(query, text)
 
@@ -117,6 +160,7 @@ class RoPSelector:
             "backend_requested": self.backend_requested,
             "backend_effective": self.backend_effective,
             "mpnet_model_name": self.mpnet_model_name,
+            "mpnet_device": self._mpnet_device,
             "fallback_used": self.fallback_used,
             "fallback_reason": self.fallback_reason or None,
         }

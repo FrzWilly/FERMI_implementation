@@ -70,20 +70,28 @@ OPRO_FIGURE9_POPT = (
 
 # Appendix Figure 8 (FERMI p_opt template structure).
 FERMI_FIGURE8_POPT = (
-    "I want to find the text that could make you a personalized answer for the task ({task_focus}), "
+    "I want to find the text that could make you a personalized answer for the question about {task_focus}, "
     "based on the given personal information.\n"
-    "For {num_questions} questions, I have the responses from this person and you. "
-    "If your response is identical to the person's, then you get a higher score. "
-    "Here, I have some previous texts along with their corresponding average scores and specific cases "
-    "that you failed to correctly answer. The texts are arranged in ascending order based on their scores, "
+    "For {num_questions} questions on the same topic, I have the responses from this person and you. "
+    "If your response is identical to the person's, then you get a score of 1; otherwise, you get a score between 0 and 1. "
+    "Here, I have some previous texts along with their corresponding average scores with {num_questions} questions "
+    "and specific cases that you failed to correctly answer. The texts are arranged in ascending order based on their scores, "
     "where higher scores indicate better quality.\n"
     "{memory_block}\n"
     "The following exemplars show how to apply your text: you replace <INS> in each input with your text, "
-    "then read the input and give an output.\n"
+    "then read the input and give an output. "
+    "We say your output is wrong if your output is different from the given output, "
+    "and we say your output is correct if they are the same.\n"
     "{demonstration_block}\n"
     "Write your new text that is different from the old ones and has a score as high as possible. "
     "Write the text in square brackets."
 )
+
+TASK_FOCUS_DESCRIPTIONS = {
+    "LaMP2_tag": "movie tag classification",
+    "LaMP3_rate": "review rating",
+    "LaMP5_title": "paper title generation",
+}
 
 
 DEFAULT_TEMPLATES = {

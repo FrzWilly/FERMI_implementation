@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Sequence
 from FERMI.src.data.lamp_parser import UnifiedSample
 from FERMI.src.eval.metrics_title import rouge_l_f1
 from FERMI.src.methods.base import predict_from_profile
-from FERMI.src.prompts.templates import FERMI_FIGURE8_POPT, OPRO_FIGURE9_POPT
+from FERMI.src.prompts.templates import FERMI_FIGURE8_POPT, OPRO_FIGURE9_POPT, TASK_FOCUS_DESCRIPTIONS
 
 
 def _sample_score(task: str, pred, gold) -> float:
@@ -109,15 +109,16 @@ def collect_misaligned_context(task: str, samples: Sequence[UnifiedSample], max_
 
 
 def build_demonstration_block(samples: Sequence[UnifiedSample], max_items: int = 4) -> str:
-    demos: List[str] = []
+    """Figure 8: <INS> appears once at top of block, not per demo."""
     picked = list(samples)[: max(1, max_items)]
     if not picked:
-        return "[1]\n<INS>\nQuestion: N/A\nAnswer: N/A"
+        return "<INS>\n[1]\nQuestion: N/A\nAnswer: N/A"
 
+    demos: List[str] = ["<INS>"]
     for idx, s in enumerate(picked, start=1):
         demos.append(f"[{idx}]")
-        demos.append("<INS>")
         demos.append(f"Question: {s.input_text}")
+        demos.append(f"Answer choices: N/A")
         demos.append(f"Answer: {s.gold}")
     return "\n".join(demos)
 
@@ -163,7 +164,7 @@ def build_fermi_memory_block(memory_entries_asc: Sequence[Dict[str, Any]]) -> st
         else:
             common = sorted(top1_indices.intersection(indices))
             newly_misaligned = max(0, len(indices - top1_indices))
-            lines.append(f"{common} and {newly_misaligned} additional newly mis-aligned examples")
+            lines.append(f"{common} and {newly_misaligned} additional examples that was correctly predicted with the first text")
 
     return "\n".join(lines)
 
@@ -186,7 +187,7 @@ def build_fermi_popt_prompt(
     memory_block = build_fermi_memory_block(memory_entries_asc)
     demonstration_block = build_demonstration_block(demo_samples)
     return FERMI_FIGURE8_POPT.format(
-        task_focus=task_focus,
+        task_focus=TASK_FOCUS_DESCRIPTIONS.get(task_focus, task_focus),
         num_questions=num_questions,
         memory_block=memory_block,
         demonstration_block=demonstration_block,

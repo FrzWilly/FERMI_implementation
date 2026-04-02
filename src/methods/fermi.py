@@ -3,12 +3,15 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from FERMI.src.data.lamp_parser import UnifiedSample
+from FERMI.src.methods.base import BaseMethod
+from FERMI.src.methods.memory_bank import MemoryBank
 from FERMI.src.methods.opro import OPROMethod
 from FERMI.src.methods.optimizer_loop import (
     build_fermi_popt_prompt,
     evaluate_prompt_on_samples,
     generate_k_prompts,
 )
+from FERMI.src.prompts.init_prompt import get_initial_prompt
 from FERMI.src.retrieval.rop_selector import RoPSelector
 
 
@@ -30,9 +33,14 @@ class FERMIMethod(OPROMethod):
         self.prompt_pool_final: List[Dict[str, Any]] = []
 
     def fit(self, train_samples: List[UnifiedSample]) -> None:
-        super().fit(train_samples)
+        # Call BaseMethod.fit() only (store train_samples); skip OPROMethod.fit() to
+        # avoid running a full OPRO optimization loop before FERMI's own loop.
+        BaseMethod.fit(self, train_samples)
         if not train_samples:
             return
+
+        # Reset memory bank so no state leaks in from prior calls.
+        self.memory = MemoryBank(size=self.l)
 
         self.tau = float(self.config.get("tau", self.tau))
 
@@ -41,7 +49,9 @@ class FERMIMethod(OPROMethod):
         if self.training_eval_use_llm and self.training_eval_subset_size > 0:
             evaluation_samples = optimize_samples[: min(len(optimize_samples), self.training_eval_subset_size)]
 
-        current_pool: List[Dict[str, Any]] = [{"prompt_id": "init_0", "text": self.best_prompt["text"]}]
+        current_pool: List[Dict[str, Any]] = [
+            {"prompt_id": "init_0", "text": get_initial_prompt(self.task, strategy="vanilla")}
+        ]
 
         for step in range(self.t):
             # 1) score prompts
@@ -104,8 +114,37 @@ class FERMIMethod(OPROMethod):
 
             self._record_iteration_artifacts(step)
 
-        self.prompt_pool_final = self.memory.top()
-        self.best_prompt = self.memory.best()
+        self.prompt_pool_final = []
+        for i, p in enumerate(current_pool):
+            eval_result = evaluate_prompt_on_samples(
+                task=self.task,
+                prompt_text=p["text"],
+                samples=evaluation_samples,
+                tau=self.tau,
+                predictor_fn=self._evaluation_predictor(p) if self.training_eval_use_llm else None,
+            )
+            entry = {
+                "prompt_id": p.get("prompt_id", f"t{self.t}_p{i}"),
+                "text": p["text"],
+                "score": float(eval_result.get("score", 0.0)),
+                "accuracy": float(eval_result.get("accuracy", 0.0)),
+                "loss": float(eval_result.get("loss", 0.0)),
+                "sample_scores": eval_result.get("sample_scores", {}),
+                "misaligned_records": eval_result.get("misaligned_records", []),
+                "misaligned_indices": eval_result.get("misaligned_indices", set()),
+                "misaligned_count": int(eval_result.get("misaligned_count", 0)),
+                "iteration": self.t,
+                "surrogate_metric": eval_result.get("surrogate_metric"),
+                "evaluation_backend": eval_result.get("evaluation_backend"),
+            }
+            self.prompt_pool_final.append(entry)
+            self.memory.add(entry)
+            self._record_training_entry(entry)
+
+        if not self.prompt_pool_final:
+            self.prompt_pool_final = self.memory.top()
+
+        self.best_prompt = max(self.prompt_pool_final, key=lambda entry: float(entry.get("score", 0.0)))
         self._finalize_training_artifacts()
 
     def predict(self, sample: UnifiedSample) -> Dict[str, Any]:

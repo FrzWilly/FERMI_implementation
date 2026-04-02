@@ -5,8 +5,12 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from FERMI.src.data.lamp_parser import UnifiedSample
-from FERMI.src.methods.base import BaseMethod, predict_from_profile
-from FERMI.src.methods.inference_utils import build_personalized_inference_prompt, parse_llm_prediction
+from FERMI.src.methods.base import BaseMethod
+from FERMI.src.methods.inference_utils import (
+    build_personalized_inference_prompt,
+    build_prediction_repair_prompt,
+    parse_llm_prediction,
+)
 from FERMI.src.methods.llm_interface import LLMClient
 from FERMI.src.methods.memory_bank import MemoryBank
 from FERMI.src.methods.observability import TrainingArtifacts
@@ -34,8 +38,8 @@ class OPROMethod(BaseMethod):
         self.tau = float(self.config.get("tau", 1.0))
         self.m_temperature = float(self.config.get("M_temperature", self.config.get("model_M_temperature", 0.0)))
         self.mopt_temperature = float(self.config.get("Mopt_temperature", 1.0))
-        self.model_m_name = str(self.config.get("model_M_name", "gpt-4.1-mini"))
-        self.model_mopt_name = str(self.config.get("model_Mopt_name", "gpt-4o-mini"))
+        self.model_m_name = str(self.config.get("model_M_name", "gpt-3.5-turbo"))
+        self.model_mopt_name = str(self.config.get("model_Mopt_name", "gpt-4"))
         self.openai_api_key_env = str(self.config.get("openai_api_key_env", "OPENAI_API_KEY"))
         self.openai_max_retries = int(self.config.get("openai_max_retries", 2))
         self.openai_request_timeout = float(self.config.get("openai_request_timeout", 30.0))
@@ -54,9 +58,9 @@ class OPROMethod(BaseMethod):
         )
         self.memory = MemoryBank(size=self.l)
         self.best_prompt: Dict[str, Any] = {"prompt_id": "init", "text": get_initial_prompt(task), "score": 0.0}
+        self.final_prompt_pool: List[Dict[str, Any]] = []
         self.training_artifacts: TrainingArtifacts | None = None
-        self.prediction_source_counts = {"llm": 0, "heuristic_fallback": 0}
-        self.last_prediction_fallback_reason: str | None = None
+        self.prediction_source_counts = {"llm": 0}
 
     def set_run_context(self, run_dir: Path, split: str) -> None:
         super().set_run_context(run_dir, split)
@@ -106,7 +110,6 @@ class OPROMethod(BaseMethod):
                 task=self.task,
                 optimized_prompt=prompt_text,
                 sample=sample,
-                max_profile_items=self.prediction_profile_limit,
             )
             raw_response = self.llm.generate(
                 llm_prompt,
@@ -118,25 +121,30 @@ class OPROMethod(BaseMethod):
             )
             parsed = parse_llm_prediction(self.task, raw_response)
             if parsed is None:
-                raise RuntimeError("llm_parse_error")
+                repaired_raw = self.llm.generate(
+                    build_prediction_repair_prompt(self.task, raw_response),
+                    temperature=0.0,
+                    max_tokens=16,
+                    model=self.model_m_name,
+                    role="evaluator",
+                    allow_fallback=False,
+                )
+                parsed = parse_llm_prediction(self.task, repaired_raw)
+                if parsed is None:
+                    raise RuntimeError(f"llm_parse_error: raw={raw_response!r} repaired_raw={repaired_raw!r}")
+                raw_response = repaired_raw
             prediction = parsed
             if count_prediction_source:
                 self.prediction_source_counts["llm"] += 1
         except Exception as exc:
-            prediction_source = "heuristic_fallback"
-            fallback_reason = str(exc)
-            if count_prediction_source:
-                self.last_prediction_fallback_reason = fallback_reason
-            prediction = predict_from_profile(self.task, sample)
-            if count_prediction_source:
-                self.prediction_source_counts["heuristic_fallback"] += 1
-            self.logger.warning(
-                "[%s] fallback to heuristic for sample=%s prompt=%s reason=%s",
+            self.logger.error(
+                "[%s] LLM predict failed for sample=%s prompt=%s reason=%s",
                 self.name,
                 sample.id,
                 selected_prompt_id,
-                fallback_reason,
+                exc,
             )
+            raise
 
         event = {
             "sample_id": sample.id,
@@ -290,11 +298,48 @@ class OPROMethod(BaseMethod):
 
             self._record_iteration_artifacts(step)
 
-        self.best_prompt = self.memory.best()
+        self.final_prompt_pool = []
+        for i, p in enumerate(current_pool):
+            eval_result = evaluate_prompt_on_samples(
+                task=self.task,
+                prompt_text=p["text"],
+                samples=evaluation_samples,
+                tau=self.tau,
+                predictor_fn=self._evaluation_predictor(p) if self.training_eval_use_llm else None,
+            )
+            entry = {
+                "prompt_id": p.get("prompt_id", f"t{self.t}_p{i}"),
+                "text": p["text"],
+                "score": float(eval_result.get("score", 0.0)),
+                "accuracy": float(eval_result.get("accuracy", 0.0)),
+                "loss": float(eval_result.get("loss", 0.0)),
+                "sample_scores": eval_result.get("sample_scores", {}),
+                "misaligned_records": eval_result.get("misaligned_records", []),
+                "misaligned_indices": eval_result.get("misaligned_indices", set()),
+                "misaligned_count": int(eval_result.get("misaligned_count", 0)),
+                "iteration": self.t,
+                "surrogate_metric": eval_result.get("surrogate_metric"),
+                "evaluation_backend": eval_result.get("evaluation_backend"),
+            }
+            self.final_prompt_pool.append(entry)
+            self.memory.add(entry)
+            self._record_training_entry(entry)
+
+        self.best_prompt = (
+            max(self.final_prompt_pool, key=lambda entry: float(entry.get("score", 0.0)))
+            if self.final_prompt_pool
+            else self.memory.best()
+        )
         self._finalize_training_artifacts()
 
     def predict(self, sample: UnifiedSample) -> Dict[str, Any]:
         return self._predict_with_selected_prompt(sample=sample, prompt_entry=self.best_prompt, rop_neighbor_ids=[])
+
+    def get_curve_rows(self) -> List[Dict[str, Any]]:
+        """Return per-iteration best-score records recorded during fit()."""
+        if self.training_artifacts is not None:
+            return list(self.training_artifacts.curve_rows)
+        return []
 
     def artifact_summary(self) -> Dict[str, Any]:
         if self.training_artifacts is None:
@@ -314,9 +359,9 @@ class OPROMethod(BaseMethod):
             "split_per_user": self.split_per_user,
             "training_eval_use_llm": self.training_eval_use_llm,
             "training_eval_subset_size": self.training_eval_subset_size,
+            "final_prompt_pool_size": len(self.final_prompt_pool),
             "best_prompt_id": self.best_prompt.get("prompt_id"),
             "best_prompt_score": self.best_prompt.get("score"),
             "prediction_source_counts": self.prediction_source_counts,
-            "last_prediction_fallback_reason": self.last_prediction_fallback_reason,
             "artifacts": self.artifact_summary(),
         }

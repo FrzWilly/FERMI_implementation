@@ -22,8 +22,8 @@ class LLMClient:
 
     def __init__(
         self,
-        evaluator_model: str = "gpt-4.1-mini",
-        optimizer_model: str = "gpt-4o-mini",
+        evaluator_model: str = "gpt-3.5-turbo",
+        optimizer_model: str = "gpt-4",
         api_key_env: str = "OPENAI_API_KEY",
         max_retries: int = 2,
         request_timeout: float = 30.0,

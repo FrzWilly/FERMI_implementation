@@ -7,13 +7,14 @@
   "optimization_train_ratio": 0.8,
   "demonstration_ratio": 0.2,
   "split_per_user": true,
-  "model_M_name": "gpt-4.1-mini",
-  "model_Mopt_name": "gpt-4o-mini",
+  "model_M_name": "gpt-3.5-turbo",
+  "model_Mopt_name": "gpt-4",
   "M_temperature": 0.0,
   "Mopt_temperature": 1.0,
   "openai_api_key_env": "OPENAI_API_KEY",
   "openai_max_retries": 2,
   "openai_request_timeout": 30.0,
+  "training_eval_subset_size": 0,
   "prediction_profile_limit": 20,
   "prediction_max_tokens": 64
 }

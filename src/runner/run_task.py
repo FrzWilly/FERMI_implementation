@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from FERMI.src.runner.run_method import run
+from FERMI.src.runner.run_method import run_per_user as run
 
 
 def main() -> None:

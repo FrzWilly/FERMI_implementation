@@ -43,6 +43,7 @@ def profile_item_text(task: str, item: Dict[str, Any]) -> str:
 
 def build_sample(record: Dict[str, Any], task: str, split: str, gold: Optional[Any]) -> UnifiedSample:
     profile = record.get("profile", []) or []
+    explicit_user_id = record.get("user_id")
     return UnifiedSample(
         id=str(record["id"]),
         task=task,
@@ -50,6 +51,5 @@ def build_sample(record: Dict[str, Any], task: str, split: str, gold: Optional[A
         input_text=str(record.get("input", "")),
         profile=profile,
         gold=gold,
-        user_id=derive_user_id(profile),
+        user_id=str(explicit_user_id) if explicit_user_id not in {None, ""} else derive_user_id(profile),
     )
-
